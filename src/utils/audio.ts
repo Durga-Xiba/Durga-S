@@ -109,6 +109,39 @@ class SoundEngine {
   }
 
   /**
+   * Professional, muted wrong-guess penalty sound:
+   * Short, authoritative dual low buzz indicating -10 points.
+   */
+  public playWrongGuessSound(): void {
+    const ctx = this.getContext();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
+
+    try {
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(140, now);
+      osc.frequency.setValueAtTime(115, now + 0.1);
+
+      gain.gain.setValueAtTime(0.3, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now);
+      osc.stop(now + 0.23);
+    } catch {
+      // safe fallback
+    }
+  }
+
+  /**
    * Subtle reveal chime when an answer is unlocked.
    */
   public playRevealChime(): void {

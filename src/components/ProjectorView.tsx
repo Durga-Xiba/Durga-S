@@ -3,11 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { GameConfig, GameState } from '../types/game';
+import { calculateScore } from '../utils/gameState';
 import { PyramidBoard } from './PyramidBoard';
 import { TimerClock } from './TimerClock';
-import { Maximize2, Minimize2 } from 'lucide-react';
+import { Maximize2, Minimize2, XCircle } from 'lucide-react';
 
 interface ProjectorViewProps {
   config: GameConfig;
@@ -21,8 +22,22 @@ export const ProjectorView: React.FC<ProjectorViewProps> = ({
   state,
   onBackToHost,
 }) => {
-  const containerRef = React.useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showWrongBanner, setShowWrongBanner] = useState(false);
+  const lastTsRef = useRef<number | undefined>(state.lastWrongGuessTimestamp);
+
+  // Watch for new wrong guess events and show brief, clean feedback
+  useEffect(() => {
+    if (state.lastWrongGuessTimestamp && state.lastWrongGuessTimestamp !== lastTsRef.current) {
+      lastTsRef.current = state.lastWrongGuessTimestamp;
+      setShowWrongBanner(true);
+      const timer = setTimeout(() => {
+        setShowWrongBanner(false);
+      }, 1800);
+      return () => clearTimeout(timer);
+    }
+  }, [state.lastWrongGuessTimestamp]);
 
   useEffect(() => {
     const doc = containerRef.current?.ownerDocument || document;
@@ -50,16 +65,10 @@ export const ProjectorView: React.FC<ProjectorViewProps> = ({
   const currentQIndex = state.currentQuestionIndex ?? 0;
   const currentQ = config.questions[currentQIndex] || config.questions[0];
   const revealedForCurrent = state.revealedMap[currentQIndex] || Array(10).fill(false);
+  const currentWrongGuesses = state.wrongGuessesMap?.[currentQIndex] || 0;
 
-  // Calculate revealed score summary for subtle presentation display
-  let revealedScore = 0;
-  let revealedCount = 0;
-  revealedForCurrent.forEach((rev, idx) => {
-    if (rev && currentQ.answers[idx]) {
-      revealedScore += currentQ.answers[idx].points;
-      revealedCount++;
-    }
-  });
+  // Calculate authoritative score
+  const score = calculateScore(currentQ, revealedForCurrent, currentWrongGuesses);
 
   return (
     <div
@@ -93,11 +102,36 @@ export const ProjectorView: React.FC<ProjectorViewProps> = ({
 
         <div className="flex items-center gap-4">
           <div className="text-right">
-            <span className="text-xs md:text-sm font-bold uppercase tracking-wider text-slate-500">
-              Question {currentQIndex + 1} of 30
-            </span>
-            <div className="text-xs text-slate-400 mt-0.5">
-              {revealedCount} of 10 Revealed · <span className="font-mono font-bold text-slate-700">{revealedScore} pts</span>
+            <div className="flex items-center justify-end gap-2">
+              <span className="text-xs md:text-sm font-bold uppercase tracking-wider text-slate-500">
+                Question {currentQIndex + 1} of 30
+              </span>
+              <span className="text-slate-300">·</span>
+              <div className="inline-flex items-center gap-1 bg-white border border-slate-200/90 shadow-2xs px-2.5 py-0.5 rounded">
+                <span className="text-[10px] md:text-xs font-bold uppercase tracking-wider text-slate-400">
+                  Score
+                </span>
+                <span
+                  className={`font-mono font-black text-sm md:text-base tabular-nums ${
+                    score.currentScore < 0 ? 'text-rose-600' : 'text-slate-900'
+                  }`}
+                >
+                  {score.currentScore} PTS
+                </span>
+              </div>
+            </div>
+            <div className="text-[11px] md:text-xs text-slate-500 mt-1 flex items-center justify-end gap-2 font-mono">
+              <span className="text-emerald-700 font-semibold">
+                +{score.correctPoints} ({score.correctCount}/10)
+              </span>
+              {score.wrongGuessCount > 0 && (
+                <>
+                  <span className="text-slate-300">·</span>
+                  <span className="text-rose-600 font-semibold">
+                    −{score.wrongPenalty} ({score.wrongGuessCount} wrong)
+                  </span>
+                </>
+              )}
             </div>
           </div>
 
@@ -119,6 +153,19 @@ export const ProjectorView: React.FC<ProjectorViewProps> = ({
 
       {/* Main Center Stage: Question Title, Timer, and Pyramid */}
       <main className="max-w-5xl mx-auto w-full my-auto flex flex-col items-center py-4">
+        {/* Brief Professional Wrong Guess Visual Indicator */}
+        {showWrongBanner && (
+          <div className="w-full max-w-md mx-auto mb-4 py-3 px-6 bg-white border-2 border-rose-600 rounded-lg shadow-md text-center animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-center gap-1.5 text-xs font-black uppercase tracking-widest text-rose-600 mb-0.5">
+              <XCircle className="w-4 h-4 stroke-[2.5]" />
+              WRONG GUESS
+            </div>
+            <div className="font-mono text-2xl md:text-3xl font-black text-rose-600 tracking-tight">
+              −10 POINTS
+            </div>
+          </div>
+        )}
+
         {/* Question Title & Prompt */}
         <div className="text-center mb-4 max-w-3xl">
           <div className="inline-block mb-1.5">
@@ -160,7 +207,7 @@ export const ProjectorView: React.FC<ProjectorViewProps> = ({
       <footer className="max-w-5xl mx-auto w-full pt-3 text-center border-t border-slate-200/60 text-xs text-slate-400">
         <span>Operations Management Quiz Challenge</span>
         <span className="mx-2">·</span>
-        <span>Fixed 100 to 10 Points Scale</span>
+        <span>Fixed 100 to 10 Points Scale · −10 Pts Wrong Guess</span>
       </footer>
     </div>
   );

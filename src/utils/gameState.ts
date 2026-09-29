@@ -98,6 +98,17 @@ export function getInitialState(): GameState {
           }
         }
 
+        const wrongGuessesMap: Record<number, number> = {};
+        if (parsed.wrongGuessesMap && typeof parsed.wrongGuessesMap === 'object') {
+          for (let i = 0; i < 30; i++) {
+            wrongGuessesMap[i] = typeof parsed.wrongGuessesMap[i] === 'number' ? Math.max(0, parsed.wrongGuessesMap[i]) : 0;
+          }
+        } else {
+          for (let i = 0; i < 30; i++) {
+            wrongGuessesMap[i] = 0;
+          }
+        }
+
         // Timer recovery
         let timerRemaining = typeof parsed.timerRemaining === 'number' ? Math.max(0, Math.min(120, parsed.timerRemaining)) : 120;
         let timerStatus = parsed.timerStatus || 'IDLE';
@@ -117,6 +128,8 @@ export function getInitialState(): GameState {
         return {
           currentQuestionIndex: qIdx,
           revealedMap,
+          wrongGuessesMap,
+          lastWrongGuessTimestamp: typeof parsed.lastWrongGuessTimestamp === 'number' ? parsed.lastWrongGuessTimestamp : undefined,
           timerStatus,
           timerRemaining,
           timerEndTime,
@@ -135,19 +148,61 @@ export function getInitialState(): GameState {
 
 export function createFreshState(): GameState {
   const revealedMap: Record<number, boolean[]> = {};
+  const wrongGuessesMap: Record<number, number> = {};
   for (let i = 0; i < 30; i++) {
     revealedMap[i] = Array(10).fill(false);
+    wrongGuessesMap[i] = 0;
   }
 
   return {
     currentQuestionIndex: 0,
     revealedMap,
+    wrongGuessesMap,
+    lastWrongGuessTimestamp: undefined,
     timerStatus: 'IDLE',
     timerRemaining: 120,
     timerEndTime: null,
     timerPausedAtRemaining: 120,
     buzzerHistory: [],
     lastUpdated: Date.now(),
+  };
+}
+
+export interface ScoreBreakdown {
+  correctCount: number;
+  correctPoints: number;
+  wrongGuessCount: number;
+  wrongPenalty: number;
+  currentScore: number;
+}
+
+export function calculateScore(
+  question: GameQuestion,
+  revealed: boolean[] = [],
+  wrongGuesses: number = 0
+): ScoreBreakdown {
+  let correctCount = 0;
+  let correctPoints = 0;
+
+  if (question && Array.isArray(question.answers)) {
+    question.answers.forEach((ans, idx) => {
+      if (revealed[idx]) {
+        correctCount++;
+        correctPoints += (typeof ans.points === 'number' ? ans.points : 0);
+      }
+    });
+  }
+
+  const safeWrongGuesses = Math.max(0, wrongGuesses || 0);
+  const wrongPenalty = safeWrongGuesses * 10;
+  const currentScore = correctPoints - wrongPenalty;
+
+  return {
+    correctCount,
+    correctPoints,
+    wrongGuessCount: safeWrongGuesses,
+    wrongPenalty,
+    currentScore,
   };
 }
 

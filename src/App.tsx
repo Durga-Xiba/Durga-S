@@ -219,15 +219,66 @@ export default function App() {
     if (newIndex < 0 || newIndex > 29) return;
     const currentState = stateRef.current;
 
-    // Moving question: Stop timer, reset to 02:00, clear buzzer history, do not auto-start
+    // Moving question: Reset gameplay scoring for new question, Stop timer, reset to 02:00, clear buzzer history, do not auto-start
     const nextState: GameState = {
       ...currentState,
       currentQuestionIndex: newIndex,
+      revealedMap: {
+        ...currentState.revealedMap,
+        [newIndex]: Array(10).fill(false),
+      },
+      wrongGuessesMap: {
+        ...currentState.wrongGuessesMap,
+        [newIndex]: 0,
+      },
+      lastWrongGuessTimestamp: undefined,
       timerStatus: 'IDLE',
       timerRemaining: 120,
       timerPausedAtRemaining: 120,
       timerEndTime: null,
       buzzerHistory: [],
+      lastUpdated: Date.now(),
+    };
+
+    setState(nextState);
+    broadcastCurrent(nextState);
+  };
+
+  const handleWrongGuess = () => {
+    soundEngine.unlock();
+    soundEngine.playWrongGuessSound();
+
+    const currentState = stateRef.current;
+    const qIdx = currentState.currentQuestionIndex;
+    const currentWrong = currentState.wrongGuessesMap?.[qIdx] || 0;
+    const newWrong = currentWrong + 1;
+
+    const nextState: GameState = {
+      ...currentState,
+      wrongGuessesMap: {
+        ...currentState.wrongGuessesMap,
+        [qIdx]: newWrong,
+      },
+      lastWrongGuessTimestamp: Date.now(),
+      lastUpdated: Date.now(),
+    };
+
+    setState(nextState);
+    broadcastCurrent(nextState);
+  };
+
+  const handleUndoWrongGuess = () => {
+    const currentState = stateRef.current;
+    const qIdx = currentState.currentQuestionIndex;
+    const currentWrong = currentState.wrongGuessesMap?.[qIdx] || 0;
+    if (currentWrong <= 0) return;
+
+    const nextState: GameState = {
+      ...currentState,
+      wrongGuessesMap: {
+        ...currentState.wrongGuessesMap,
+        [qIdx]: currentWrong - 1,
+      },
       lastUpdated: Date.now(),
     };
 
@@ -309,6 +360,11 @@ export default function App() {
         ...currentState.revealedMap,
         [qIdx]: Array(10).fill(false),
       },
+      wrongGuessesMap: {
+        ...currentState.wrongGuessesMap,
+        [qIdx]: 0,
+      },
+      lastWrongGuessTimestamp: undefined,
       timerStatus: 'IDLE',
       timerRemaining: 120,
       timerPausedAtRemaining: 120,
@@ -529,6 +585,8 @@ export default function App() {
             onRevealAll={handleRevealAll}
             onHideAll={handleHideAll}
             onResetQuestion={handleResetQuestion}
+            onWrongGuess={handleWrongGuess}
+            onUndoWrongGuess={handleUndoWrongGuess}
             onStartTimer={handleStartTimer}
             onPauseTimer={handlePauseTimer}
             onResetTimer={handleResetTimer}

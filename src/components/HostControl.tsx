@@ -3,8 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { GameConfig, GameState } from '../types/game';
+import { calculateScore } from '../utils/gameState';
 import { PyramidBoard } from './PyramidBoard';
 import { TimerClock } from './TimerClock';
 import {
@@ -21,6 +22,8 @@ import {
   Square,
   AlertCircle,
   Volume2,
+  XCircle,
+  Undo2,
 } from 'lucide-react';
 
 interface HostControlProps {
@@ -30,6 +33,8 @@ interface HostControlProps {
   onRevealAll: () => void;
   onHideAll: () => void;
   onResetQuestion: () => void;
+  onWrongGuess: () => void;
+  onUndoWrongGuess?: () => void;
   onStartTimer: () => void;
   onPauseTimer: () => void;
   onResetTimer: () => void;
@@ -47,6 +52,8 @@ export const HostControl: React.FC<HostControlProps> = ({
   onRevealAll,
   onHideAll,
   onResetQuestion,
+  onWrongGuess,
+  onUndoWrongGuess,
   onStartTimer,
   onPauseTimer,
   onResetTimer,
@@ -58,20 +65,30 @@ export const HostControl: React.FC<HostControlProps> = ({
 }) => {
   const [layoutMode, setLayoutMode] = useState<'focused' | 'split'>('focused');
   const [showResetGameConfirm, setShowResetGameConfirm] = useState(false);
+  const [wrongAlertVisible, setWrongAlertVisible] = useState(false);
 
   const currentQIndex = state.currentQuestionIndex ?? 0;
   const currentQ = config.questions[currentQIndex] || config.questions[0];
   const revealedForCurrent = state.revealedMap[currentQIndex] || Array(10).fill(false);
+  const currentWrongGuesses = state.wrongGuessesMap?.[currentQIndex] || 0;
 
-  // Score summary
-  let revealedScore = 0;
-  let revealedCount = 0;
-  revealedForCurrent.forEach((rev, idx) => {
-    if (rev && currentQ.answers[idx]) {
-      revealedScore += currentQ.answers[idx].points;
-      revealedCount++;
+  // Authoritative score calculation
+  const score = calculateScore(currentQ, revealedForCurrent, currentWrongGuesses);
+
+  // Trigger visual alert when wrong guess occurs
+  const handleWrongGuessClick = () => {
+    onWrongGuess();
+    setWrongAlertVisible(true);
+  };
+
+  useEffect(() => {
+    if (wrongAlertVisible) {
+      const timer = setTimeout(() => {
+        setWrongAlertVisible(false);
+      }, 1800);
+      return () => clearTimeout(timer);
     }
-  });
+  }, [wrongAlertVisible]);
 
   const isTimerRunning = state.timerStatus === 'RUNNING';
 
@@ -281,15 +298,20 @@ export const HostControl: React.FC<HostControlProps> = ({
           </div>
 
           {/* Live Reveal Score Summary */}
-          <div className="flex flex-col items-center md:items-end justify-center bg-slate-50 border border-slate-200/80 rounded-md p-3 min-w-[160px]">
+          <div className="flex flex-col items-center md:items-end justify-center bg-slate-50 border border-slate-200/80 rounded-md p-3 min-w-[200px]">
             <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-              Revealed Status
+              Current Question Score
             </span>
-            <div className="text-sm font-extrabold text-slate-900 mt-0.5">
-              {revealedCount} / 10 REVEALED
+            <div
+              className={`text-lg md:text-xl font-black mt-0.5 tabular-nums ${
+                score.currentScore < 0 ? 'text-rose-600' : 'text-slate-900'
+              }`}
+            >
+              {score.currentScore} PTS
             </div>
-            <div className="text-xs font-mono font-bold text-slate-700 mt-0.5">
-              {revealedScore} PTS SCORED
+            <div className="text-[11px] font-mono text-slate-600 mt-0.5">
+              <span className="text-emerald-700 font-semibold">+{score.correctPoints}</span> ({score.correctCount}/10) ·{' '}
+              <span className="text-rose-600 font-semibold">−{score.wrongPenalty}</span> ({score.wrongGuessCount} wrong)
             </div>
           </div>
         </div>
@@ -354,6 +376,21 @@ export const HostControl: React.FC<HostControlProps> = ({
 
           {/* Full Interactive Host Pyramid Board */}
           <div className="py-2">
+            {/* Brief Wrong Guess Alert Indicator */}
+            {wrongAlertVisible && (
+              <div className="max-w-md mx-auto mb-3 p-3 bg-rose-600 text-white rounded-md shadow-sm flex items-center justify-between animate-in fade-in zoom-in-95 duration-150">
+                <div className="flex items-center gap-2">
+                  <XCircle className="w-5 h-5 text-rose-200 shrink-0" />
+                  <span className="font-extrabold uppercase tracking-wide text-xs md:text-sm">
+                    WRONG GUESS RECORDED
+                  </span>
+                </div>
+                <span className="font-mono font-black text-base md:text-lg bg-rose-700/90 px-2.5 py-0.5 rounded">
+                  −10 POINTS
+                </span>
+              </div>
+            )}
+
             <PyramidBoard
               answers={currentQ.answers}
               revealed={revealedForCurrent}
@@ -361,6 +398,71 @@ export const HostControl: React.FC<HostControlProps> = ({
               onAnswerClick={onRevealAnswer}
               size="normal"
             />
+
+            {/* Dedicated Wrong Guess & Score Bar */}
+            <div className="max-w-4xl mx-auto mt-5 pt-4 border-t border-slate-200/90 bg-slate-50/90 rounded-lg p-3.5 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-2xs">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleWrongGuessClick}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-bold text-xs md:text-sm rounded-md shadow-2xs transition-colors cursor-pointer"
+                  title="Record an incorrect answer and deduct 10 points"
+                >
+                  <XCircle className="w-4 h-4 stroke-[2.5]" />
+                  WRONG GUESS −10
+                </button>
+
+                {score.wrongGuessCount > 0 && onUndoWrongGuess && (
+                  <button
+                    type="button"
+                    onClick={onUndoWrongGuess}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-slate-600 bg-white border border-slate-300 rounded hover:bg-slate-100 transition-colors cursor-pointer"
+                    title="Undo last wrong guess"
+                  >
+                    <Undo2 className="w-3.5 h-3.5" />
+                    Undo (-1)
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-3 text-xs">
+                <div className="text-center sm:text-right">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                    Wrong Guesses
+                  </span>
+                  <span className="font-mono font-bold text-slate-800">
+                    {score.wrongGuessCount}{' '}
+                    <span className="text-rose-600">(−{score.wrongPenalty})</span>
+                  </span>
+                </div>
+
+                <div className="h-6 w-px bg-slate-200" />
+
+                <div className="text-center sm:text-right">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                    Correct
+                  </span>
+                  <span className="font-mono font-bold text-emerald-700">
+                    +{score.correctPoints}
+                  </span>
+                </div>
+
+                <div className="h-6 w-px bg-slate-200" />
+
+                <div className="text-center sm:text-right bg-white px-2.5 py-1 rounded border border-slate-200 shadow-2xs">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                    Current Score
+                  </span>
+                  <span
+                    className={`font-mono font-black text-sm md:text-base tabular-nums ${
+                      score.currentScore < 0 ? 'text-rose-600' : 'text-slate-900'
+                    }`}
+                  >
+                    {score.currentScore} PTS
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
         </main>
       ) : (
@@ -442,6 +544,16 @@ export const HostControl: React.FC<HostControlProps> = ({
 
               {/* Host Interactive Pyramid */}
               <div className="py-1">
+                {wrongAlertVisible && (
+                  <div className="mb-2 p-2 bg-rose-600 text-white rounded text-xs font-bold flex items-center justify-between animate-in fade-in duration-150">
+                    <span className="flex items-center gap-1.5">
+                      <XCircle className="w-3.5 h-3.5" />
+                      WRONG GUESS
+                    </span>
+                    <span>−10 POINTS</span>
+                  </div>
+                )}
+
                 <PyramidBoard
                   answers={currentQ.answers}
                   revealed={revealedForCurrent}
@@ -449,6 +561,38 @@ export const HostControl: React.FC<HostControlProps> = ({
                   onAnswerClick={onRevealAnswer}
                   size="compact"
                 />
+
+                {/* Wrong Guess Bar for Split Mode */}
+                <div className="mt-3 pt-2.5 border-t border-slate-200 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={handleWrongGuessClick}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-bold text-xs rounded transition-colors cursor-pointer"
+                    >
+                      <XCircle className="w-3.5 h-3.5" />
+                      WRONG GUESS −10
+                    </button>
+                    {score.wrongGuessCount > 0 && onUndoWrongGuess && (
+                      <button
+                        type="button"
+                        onClick={onUndoWrongGuess}
+                        className="p-1.5 text-xs text-slate-600 bg-white border border-slate-300 rounded hover:bg-slate-100 cursor-pointer"
+                        title="Undo"
+                      >
+                        <Undo2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                  <div className="text-right text-xs">
+                    <span className="font-mono font-bold text-slate-700 block">
+                      {score.wrongGuessCount} wrong ·{' '}
+                      <span className={score.currentScore < 0 ? 'text-rose-600' : 'text-slate-900'}>
+                        {score.currentScore} pts
+                      </span>
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
 
